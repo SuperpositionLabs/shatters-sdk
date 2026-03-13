@@ -13,6 +13,8 @@ namespace shatters
     {
         Ok = 0,
         CryptoError,
+        NetworkError,
+        InvalidArgument
     };
 
     struct Error

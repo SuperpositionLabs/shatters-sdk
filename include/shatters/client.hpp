@@ -18,7 +18,7 @@ namespace shatters
                 std::string server_host;
                 uint16_t    server_port = 443;
 
-                std::vector<uint8_t> server_noise_pubkey;
+                std::vector<uint8_t> server_pubkey;
                 std::vector<uint8_t> tls_pin_sha256;
 
                 bool auto_reconnect = true;

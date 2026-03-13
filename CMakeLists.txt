@@ -79,6 +79,7 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 find_package(spdlog CONFIG REQUIRED)
+find_package(msquic CONFIG REQUIRED)
 find_package(unofficial-sodium CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 
@@ -104,6 +105,7 @@ target_link_libraries(shatters-sdk
     PUBLIC
         unofficial-sodium::sodium
     PRIVATE
+        msquic
         spdlog::spdlog
         unofficial::sqlite3::sqlite3
 )
@@ -112,7 +114,7 @@ if(SHATTERS_BUILD_TESTS)
     enable_testing()
     find_package(GTest REQUIRED)
 
-    file(GLOB_RECURSE TEST_SOURCES "tests/unit/*.cpp")
+    file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS "tests/unit/*.cpp")
 
     add_executable(shatters-sdk-tests ${TEST_SOURCES})
     target_link_libraries(shatters-sdk-tests
