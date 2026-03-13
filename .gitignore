@@ -39,6 +39,9 @@ out/
 cmake-build-*/
 vcpkg_installed/
 
+# vcpkg
+vcpkg/
+
 # IDE
 .vs/
 .vscode/
@@ -46,6 +49,7 @@ vcpkg_installed/
 *.user
 CMakeUserPresets.json
 CMakeSettings.json
+.clangd
 
 # OS
 Thumbs.db
