@@ -4,6 +4,9 @@
 *.o
 *.obj
 
+# IA context files
+context.md
+
 # Precompiled Headers
 *.gch
 *.pch
