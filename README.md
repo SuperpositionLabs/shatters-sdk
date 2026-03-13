@@ -15,7 +15,7 @@
 
 ---
 
-The core cryptographic engine behind shatters — a private, encrypted chat system for those who want complete control over their communication.  
+The core cryptographic engine behind shatters, a private, encrypted chat system for those who want complete control over their communication.  
 No third parties. No data collection. Just clean, reliable end-to-end encryption.
 
 ## License
