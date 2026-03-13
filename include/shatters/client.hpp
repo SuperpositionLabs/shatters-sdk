@@ -7,7 +7,6 @@
 
 namespace shatters
 {
-    /// Main facade for the Shatters SDK.
     class ShattersClient
     {
         public:
