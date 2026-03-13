@@ -37,12 +37,18 @@ context.md
 build/
 out/
 cmake-build-*/
+vcpkg_installed/
 
 # IDE
 .vs/
 .vscode/
 .cache/
+*.user
 CMakeUserPresets.json
 CMakeSettings.json
+
+# OS
+Thumbs.db
+.DS_Store
 
 
