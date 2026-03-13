@@ -9,7 +9,7 @@ TEST(SmokeTest, SodiumInitializes) {
 TEST(SmokeTest, ConstantsValid) {
     EXPECT_EQ(shatters::kKeySize, 32u);
     EXPECT_EQ(shatters::kSignatureSize, 64u);
-    EXPECT_EQ(shatters::kAeadNonceSize, 12u);
+    EXPECT_EQ(shatters::kAeadNonceSize, 24u);
     EXPECT_EQ(shatters::kAeadTagSize, 16u);
     EXPECT_EQ(shatters::kHashSize, 32u);
     EXPECT_EQ(shatters::kDeadDropIdSize, 32u);

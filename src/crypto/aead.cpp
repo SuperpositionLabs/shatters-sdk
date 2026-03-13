@@ -12,14 +12,10 @@ std::vector<uint8_t> aead_encrypt(
     const uint8_t* plaintext, size_t plaintext_len,
     const uint8_t* aad, size_t aad_len) {
 
-    if (!crypto_aead_aes256gcm_is_available()) {
-        throw std::runtime_error("AES-256-GCM requires hardware AES-NI support");
-    }
-
     std::vector<uint8_t> ct(plaintext_len + kAeadTagSize);
     unsigned long long ct_len = 0;
 
-    crypto_aead_aes256gcm_encrypt(
+    crypto_aead_xchacha20poly1305_ietf_encrypt(
         ct.data(), &ct_len,
         plaintext, plaintext_len,
         aad, aad_len,
@@ -35,10 +31,6 @@ std::optional<std::vector<uint8_t>> aead_decrypt(
     const uint8_t* ciphertext, size_t ciphertext_len,
     const uint8_t* aad, size_t aad_len) {
 
-    if (!crypto_aead_aes256gcm_is_available()) {
-        throw std::runtime_error("AES-256-GCM requires hardware AES-NI support");
-    }
-
     if (ciphertext_len < kAeadTagSize) {
         return std::nullopt;
     }
@@ -46,7 +38,7 @@ std::optional<std::vector<uint8_t>> aead_decrypt(
     std::vector<uint8_t> pt(ciphertext_len - kAeadTagSize);
     unsigned long long pt_len = 0;
 
-    if (crypto_aead_aes256gcm_decrypt(
+    if (crypto_aead_xchacha20poly1305_ietf_decrypt(
             pt.data(), &pt_len,
             nullptr,
             ciphertext, ciphertext_len,

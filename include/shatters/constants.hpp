@@ -7,7 +7,7 @@ namespace shatters {
 
 inline constexpr size_t kKeySize          = 32;
 inline constexpr size_t kSignatureSize    = 64;
-inline constexpr size_t kAeadNonceSize    = 12;
+inline constexpr size_t kAeadNonceSize    = 24;
 inline constexpr size_t kAeadTagSize      = 16;
 inline constexpr size_t kHashSize         = 32;
 inline constexpr size_t kDeadDropIdSize   = 32;

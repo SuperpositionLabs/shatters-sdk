@@ -10,14 +10,14 @@ namespace shatters::crypto {
 
 using AeadNonce = ByteArray<kAeadNonceSize>;
 
-// AES-256-GCM encrypt. Returns ciphertext || tag(16B).
+// XChaCha20-Poly1305 encrypt. Returns ciphertext || tag(16B).
 std::vector<uint8_t> aead_encrypt(
     const SecureArray<kKeySize>& key,
     const AeadNonce& nonce,
     const uint8_t* plaintext, size_t plaintext_len,
     const uint8_t* aad = nullptr, size_t aad_len = 0);
 
-// AES-256-GCM decrypt. Returns plaintext, or nullopt on auth failure.
+// XChaCha20-Poly1305 decrypt. Returns plaintext, or nullopt on auth failure.
 std::optional<std::vector<uint8_t>> aead_decrypt(
     const SecureArray<kKeySize>& key,
     const AeadNonce& nonce,
