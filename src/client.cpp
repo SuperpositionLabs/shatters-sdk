@@ -31,4 +31,18 @@ namespace shatters
 
         return std::move(client);
     }
+
+    Result<void> ShattersClient::connect()
+    {
+        return std::monostate{};
+    }
+
+    void ShattersClient::disconnect()
+    {
+    }
+
+    bool ShattersClient::is_connected() const
+    {
+        return false;
+    }
 }

@@ -26,9 +26,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(SHATTERS_BUILD_TESTS  "build unit tests" ON)
+option(SHATTERS_BUILD_TESTS    "build unit tests" ON)
+option(SHATTERS_BUILD_EXAMPLES "build examples"   ON)
 option(SHATTERS_ASAN         "enable address sanitizer" OFF)
-option(SHATTERS_TSAN         "enable thread sanitizer" OFF)
+option(SHATTERS_TSAN         "enable thread sanitizer"  OFF)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-fstack-protector-strong)
@@ -135,6 +136,11 @@ if(SHATTERS_BUILD_TESTS)
                 GTest::gtest_main
         )
     endif()
+endif()
+
+if(SHATTERS_BUILD_EXAMPLES)
+    add_executable(basic examples/basic.cpp)
+    target_link_libraries(basic PRIVATE shatters-sdk)
 endif()
 
 include(GNUInstallDirs)
