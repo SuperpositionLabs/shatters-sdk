@@ -8,6 +8,9 @@
         "sqlite3",
         "spdlog",
         "gtest",
-        "msquic"
+        {
+            "name": "msquic",
+            "features": ["0-rtt"]
+        }
     ]
 }

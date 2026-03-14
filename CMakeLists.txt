@@ -141,8 +141,11 @@ if(SHATTERS_BUILD_TESTS)
 endif()
 
 if(SHATTERS_BUILD_EXAMPLES)
-    add_executable(basic examples/basic.cpp)
-    target_link_libraries(basic PRIVATE shatters-sdk)
+    add_executable(chat examples/chat.cpp)
+    target_link_libraries(chat PRIVATE shatters-sdk spdlog::spdlog)
+    if(MSVC)
+        target_compile_options(chat PRIVATE /utf-8)
+    endif()
 endif()
 
 include(GNUInstallDirs)

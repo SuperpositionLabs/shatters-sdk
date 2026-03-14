@@ -9,10 +9,9 @@ namespace shatters
     enum class ConnectionState : uint8_t
     {
         Disconnected = 0,
-        Connecting = 1,
-        HandshakingNoise = 2,
-        Authenticating = 3,
-        Connected = 4,
+        Connecting,
+        Connected,
+        Reconnecting,
     };
 
     using FrameCallback = std::function<void(std::vector<uint8_t> data)>;
@@ -23,16 +22,10 @@ namespace shatters
         public:
             virtual ~ITransport() = default;
 
-            /// Connect to relay server and perform noise nk handshake.
-            virtual Result<void> connect(
-                const std::string& host, uint16_t port,
-                const uint8_t* server_pk, size_t pk_len
-            ) = 0;
-            
-            virtual void disconnect() = 0;
+            virtual Status connect(const std::string& host, uint16_t port) = 0;
+            virtual void   disconnect() = 0;
 
-            /// Send a frame noise-encrypted before transmission.
-            virtual Result<void> send(const uint8_t* data, size_t len) = 0;
+            virtual Status publish(ByteSpan data) = 0;
 
             virtual ConnectionState state() const = 0;
             virtual bool is_connected() const = 0;

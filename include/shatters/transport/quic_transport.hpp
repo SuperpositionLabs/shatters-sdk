@@ -12,8 +12,6 @@ namespace shatters
                 std::string tls_alpn = "$hatter$/1";
                 std::vector<uint8_t> tls_pin_sha256;
 
-                bool enable_0rtt = false;
-
                 uint32_t idle_timeout_ms = 60000;
                 uint32_t keep_alive_ms = 15000;
 
@@ -25,14 +23,10 @@ namespace shatters
             explicit QuicTransport(Config config);
             ~QuicTransport() override;
 
-            Result<void> connect(
-                const std::string& host, uint16_t port,
-                const uint8_t* server_pk, size_t pk_len
-            ) override;
+            Status connect(const std::string& host, uint16_t port) override;
+            void   disconnect() override;
 
-            void disconnect() override;
-
-            Result<void> send(const uint8_t* data, size_t len) override;
+            Status publish(ByteSpan data) override;
 
             ConnectionState state() const override;
             bool is_connected() const override;
@@ -45,7 +39,6 @@ namespace shatters
         
         private:
             void schedule_reconnect();
-            Result<void> do_noise_handshake();
 
             struct Impl;
             std::unique_ptr<Impl> impl_;

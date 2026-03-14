@@ -1,57 +1,108 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
+#include <cstring>
+#include <expected>
 #include <memory>
+#include <span>
 #include <string>
-#include <type_traits>
-#include <variant>
 #include <vector>
 
 namespace shatters
 {
-    enum class ErrorCode
+
+constexpr size_t CHANNEL_SIZE = 32;
+using Channel = std::array<uint8_t, CHANNEL_SIZE>;
+
+struct ChannelHash
+{
+    size_t operator()(const Channel& c) const noexcept
     {
-        Ok = 0,
-        CryptoError,
-        NetworkError,
-        InvalidArgument
-    };
+        size_t h{};
+        std::memcpy(&h, c.data(), sizeof(h));
+        return h;
+    }
+};
 
-    struct Error
-    {
-        ErrorCode code;
-        std::string message;
+enum class ErrorCode : uint8_t
+{
+    Ok = 0,
+    CryptoError,
+    NetworkError,
+    InvalidArgument,
+    Timeout,
+    ConnectionClosed,
+    AlreadyConnected,
+    NotConnected,
+    ChannelError,
+    ProtocolError,
+    InternalError,
+    BufferOverflow,
+};
 
-        explicit operator bool() const { return code != ErrorCode::Ok; }
-    };
+struct Error
+{
+    ErrorCode   code;
+    std::string message;
 
-    template <typename T>
-    class Result
-    {
-        using Storage = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
+    explicit operator bool() const noexcept { return code != ErrorCode::Ok; }
+};
 
-    public:
-        Result(Storage value) : data_(std::move(value)) {}
-        Result(Error error)   : data_(std::move(error)) {}
+template <typename T>
+class Result
+{
+public:
+    Result(T value)   : inner_(std::move(value)) {}
+    Result(Error err) : inner_(std::unexpected(std::move(err))) {}
+    Result(std::unexpected<Error> u) : inner_(std::move(u)) {}
 
-        bool is_ok()  const { return std::holds_alternative<Storage>(data_); }
-        bool is_err() const { return std::holds_alternative<Error>(data_); }
+    [[nodiscard]] bool is_ok()  const noexcept { return  inner_.has_value(); }
+    [[nodiscard]] bool is_err() const noexcept { return !inner_.has_value(); }
 
-        const Storage& value() const & requires (!std::is_void_v<T>) { return std::get<Storage>(data_); }
-        Storage&       value()       & requires (!std::is_void_v<T>) { return std::get<Storage>(data_); }
-        Storage    take_value()     && requires (!std::is_void_v<T>) { return std::move(std::get<Storage>(data_)); }
+    const T& value() const &  { return inner_.value(); }
+    T&       value()       &  { return inner_.value(); }
+    T&&      value()       && { return std::move(inner_).value(); }
 
-        const Error& error() const { return std::get<Error>(data_); }
+    const Error& error() const { return inner_.error(); }
 
-    private:
-        std::variant<Storage, Error> data_;
-    };
+    T take_value() && { return std::move(inner_).value(); }
+
+    explicit operator bool() const noexcept { return is_ok(); }
+
+private:
+    std::expected<T, Error> inner_;
+};
+
+template <>
+class Result<void>
+{
+public:
+    Result() = default;
+    Result(Error err) : inner_(std::unexpected(std::move(err))) {}
+    Result(std::unexpected<Error> u) : inner_(std::move(u)) {}
+
+    [[nodiscard]] bool is_ok()  const noexcept { return  inner_.has_value(); }
+    [[nodiscard]] bool is_err() const noexcept { return !inner_.has_value(); }
+
+    const Error& error() const { return inner_.error(); }
+
+    explicit operator bool() const noexcept { return is_ok(); }
+
+private:
+    std::expected<void, Error> inner_;
+};
+
+using Status = Result<void>;
+
+using Bytes    = std::vector<uint8_t>;
+using ByteSpan = std::span<const uint8_t>;
 
 }
 
-/// Propagate errors, rust like `?` op.
-#define SHATTERS_TRY(expr)                            \
-    do {                                              \
-        auto&& _res = (expr);                         \
-        if (_res.is_err()) return _res.error();       \
+#define SHATTERS_TRY(expr)                       \
+    do {                                         \
+        auto _shatters_try_r_ = (expr);          \
+        if (_shatters_try_r_.is_err())           \
+            return _shatters_try_r_.error();     \
     } while (0)
