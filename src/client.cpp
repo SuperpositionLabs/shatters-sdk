@@ -34,8 +34,7 @@ ShattersClient::~ShattersClient()
 Result<std::unique_ptr<ShattersClient>> ShattersClient::create(Config config)
 {
     if (sodium_init() < 0)
-        return std::unexpected(
-            Error{ErrorCode::CryptoError, "failed to initialize libsodium"});
+        return Error{ErrorCode::CryptoError, "failed to initialize libsodium"};
 
     auto client = std::unique_ptr<ShattersClient>(new ShattersClient());
     auto& impl  = *client->impl_;
