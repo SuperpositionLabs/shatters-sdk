@@ -140,6 +140,10 @@ struct Session::Impl
                 dispatch_error(msg);
                 break;
 
+            case MessageType::BundleData:
+                dispatch_data(msg);
+                break;
+
             default:
                 spdlog::debug("received message type=0x{:02x} id={}", static_cast<uint8_t>(msg.type), msg.id);
                 break;
@@ -239,6 +243,27 @@ Status Session::retrieve(const Channel& channel, ByteSpan data)
     msg.id      = impl_->alloc_msg_id();
     msg.channel = channel;
     msg.payload = Bytes(data.begin(), data.end());
+
+    return impl_->send_message(msg);
+}
+
+Status Session::upload_bundle(const Channel& channel, ByteSpan payload)
+{
+    Message msg;
+    msg.type    = MessageType::UploadBundle;
+    msg.id      = impl_->alloc_msg_id();
+    msg.channel = channel;
+    msg.payload = Bytes(payload.begin(), payload.end());
+
+    return impl_->send_message(msg);
+}
+
+Status Session::fetch_bundle(const Channel& channel)
+{
+    Message msg;
+    msg.type    = MessageType::FetchBundle;
+    msg.id      = impl_->alloc_msg_id();
+    msg.channel = channel;
 
     return impl_->send_message(msg);
 }

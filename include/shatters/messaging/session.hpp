@@ -24,6 +24,8 @@ public:
     Status                     unsubscribe(SubscriptionId id);
 
     Status                     retrieve(const Channel& channel, ByteSpan payload);
+    Status                     upload_bundle(const Channel& channel, ByteSpan payload);
+    Status                     fetch_bundle(const Channel& channel);
 
     using ErrorCallback = std::function<void(Error)>;
     void on_error(ErrorCallback callback);
