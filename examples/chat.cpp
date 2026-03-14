@@ -155,7 +155,8 @@ int main(int argc, char* argv[])
     }
 
     std::string nickname = argv[1];
-    if (nickname.size() > 32) nickname.resize(32);
+    if (nickname.size() > 32)
+        nickname.resize(32);
 
     std::string host = (argc > 2) ? argv[2] : "127.0.0.1";
     uint16_t    port = (argc > 3)
