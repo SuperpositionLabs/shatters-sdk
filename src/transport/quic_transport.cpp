@@ -357,6 +357,7 @@ struct QuicTransport::Impl
         });
     }
 
+    _Function_class_(QUIC_CONNECTION_CALLBACK)
     static QUIC_STATUS QUIC_API connection_callback(
         HQUIC /*conn*/, void* ctx, QUIC_CONNECTION_EVENT* event)
     {
@@ -442,6 +443,7 @@ struct QuicTransport::Impl
         return QUIC_STATUS_SUCCESS;
     }
 
+    _Function_class_(QUIC_STREAM_CALLBACK)
     static QUIC_STATUS QUIC_API stream_callback(
         HQUIC /*stream*/, void* ctx, QUIC_STREAM_EVENT* event)
     {
