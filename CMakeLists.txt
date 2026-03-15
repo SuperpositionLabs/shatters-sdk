@@ -65,15 +65,29 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 elseif(MSVC)
     add_compile_options(
         /W4
-        /GS      
-        /guard:cf 
-        /sdl     
+        /GS          
+        /guard:cf     
+        /sdl          
+        /we4715       
+        /we4062       
+        /analyze      
+        /external:anglebrackets  
+        /external:W0             
+        /analyze:external-       
     )
     add_link_options(
-        /DYNAMICBASE   
-        /NXCOMPAT      
-        /CETCOMPAT     
+        /DYNAMICBASE  
+        /NXCOMPAT     
+        /CETCOMPAT    
+        /guard:cf     
     )
+
+    if(SHATTERS_ASAN)
+        add_compile_options(/fsanitize=address /Zi)
+        add_link_options(/DEBUG)
+    else()
+        add_compile_options($<$<CONFIG:Debug>:/RTC1>)
+    endif()
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -125,6 +139,10 @@ if(SHATTERS_BUILD_TESTS)
     target_include_directories(shatters-sdk-tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
+
+    if(MSVC)
+        target_compile_options(shatters-sdk-tests PRIVATE /wd6326)
+    endif()
 
     include(GoogleTest)
     gtest_discover_tests(shatters-sdk-tests)
