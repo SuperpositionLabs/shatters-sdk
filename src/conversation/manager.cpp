@@ -17,7 +17,7 @@ struct Manager::Impl
 {
     identity::Identity*        identity{};
     Session*                   session{};
-    
+
     storage::Database*         db{};
     storage::SessionStore*     session_store{};
     storage::ContactStore*     contact_store{};
@@ -125,7 +125,7 @@ struct Manager::Impl
             spdlog::error("decrypt failed for {}: {}", addr, pt.error().message);
             return;
         }
-              
+
         auto ps = persist_ratchet(addr);
         if (ps.is_err())
             spdlog::error("persist failed: {}", ps.error().message);
@@ -214,6 +214,38 @@ Status Manager::send(const std::string& contact_address, ByteSpan plaintext)
     return {};
 }
 
+Result<std::vector<HistoryMessage>>
+Manager::history(
+    const std::string& contact_address,
+    size_t limit,
+    size_t offset)
+{
+    std::lock_guard lock(impl_->mu);
+
+    auto records_r = impl_->message_store->list (contact_address, limit, offset);
+    SHATTERS_TRY(records_r);
+
+    std::vector<HistoryMessage> out;
+    out.reserve(records_r.value().size());
+
+    for (const auto& rec : records_r.value())
+    {
+        auto pt = impl_->db->decrypt_blob(rec.encrypted_content);
+        if (pt.is_err())
+            continue;
+
+        HistoryMessage hm;
+        hm.id = rec.id;
+        hm.contact_address = rec.contact_address;
+        hm.plaintext = std::move(pt).take_value();
+        hm.timestamp_ms = rec.timestamp_ms;
+        hm.outgoing = (rec.direction == 0);
+
+        out.push_back(std::move(hm));
+    }
+    return out;
+}
+
 Status Manager::initiate_session(
     const std::string&          contact_address,
     const x3dh::PreKeyBundle&   their_bundle,
@@ -294,7 +326,7 @@ Status Manager::handle_initial_message(
         {
             auto kp = impl_->prekey_store->decrypt(rec.value().value());
             SHATTERS_TRY(kp);
-            
+
             opk_kp = std::move(kp).take_value();
             opk_ptr = &opk_kp.value();
             impl_->prekey_store->mark_used(initial_msg.opk_id);

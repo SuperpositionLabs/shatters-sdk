@@ -62,6 +62,7 @@ public:
 
 
     Status send_message(const std::string& contact_address, ByteSpan plaintext);
+    Result<std::vector<conversation::HistoryMessage>> message_history(const std::string& contact_address, size_t limit, size_t offset = 0);
     Status start_conversation(const std::string& contact_address, const x3dh::PreKeyBundle& their_bundle, ByteSpan first_message);
 
     Status upload_prekey_bundle(uint32_t num_one_time = 20);
@@ -71,7 +72,7 @@ public:
 
     void on_message(conversation::IncomingCallback callback);
 
-    
+
     void on_connected(std::function<void()> callback);
     void on_disconnected(std::function<void(Error)> callback);
     void on_error(std::function<void(Error)> callback);

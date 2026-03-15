@@ -33,6 +33,15 @@ struct DecryptedMessage
     bool        outgoing;
 };
 
+struct HistoryMessage
+{
+    int64_t     id{};
+    std::string contact_address;
+    Bytes       plaintext;
+    int64_t     timestamp_ms{};
+    bool        outgoing{};
+};
+
 using IncomingCallback = std::function<void(const DecryptedMessage&)>;
 
 class Manager
@@ -53,6 +62,12 @@ public:
         storage::PreKeyStore&      prekey_store);
 
     Status send(const std::string& contact_address, ByteSpan plaintext);
+
+    Result<std::vector<HistoryMessage>> history(
+        const std::string& contact_address,
+        size_t limit,
+        size_t offset = 0
+    );
 
     Status initiate_session(
         const std::string&          contact_address,

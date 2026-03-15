@@ -254,6 +254,14 @@ Status ShattersClient::send_message(const std::string& contact_address, ByteSpan
     return impl_->conversation_mgr->send(contact_address, plaintext);
 }
 
+Result<std::vector<conversation::HistoryMessage>> ShattersClient::message_history(const std::string& contact_address, size_t limit, size_t offset)
+{
+    if (!impl_->conversation_mgr)
+        return Error{ErrorCode::InternalError, "no database"};
+
+    return impl_->conversation_mgr->history(contact_address, limit, offset);
+}
+
 Status ShattersClient::start_conversation(const std::string& contact_address, const x3dh::PreKeyBundle& their_bundle, ByteSpan first_message)
 {
     if (!impl_->conversation_mgr)
