@@ -14,7 +14,7 @@
 
 ---
 
-The core library behind shatters, a private, encrypted communication system.
+The core library behind [shatters](https://github.com/SuperpositionLabs/shatters), a private, encrypted communication system.
 
 ## Features
 
