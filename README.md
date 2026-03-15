@@ -14,7 +14,7 @@
 
 ---
 
-The core library behind shatters, a private, encrypted communication system. No third parties. No data collection. No compromises.
+The core library behind shatters, a private, encrypted communication system.
 
 ## Features
 
