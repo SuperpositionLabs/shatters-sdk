@@ -78,11 +78,22 @@ static shatters::Result<shatters::Bytes> seal_decrypt(
     return pt;
 }
 
-static shatters::Bytes build_payload(const shatters::crypto::PublicKey& sender, const std::string& text)
+static shatters::Bytes build_payload(
+    const shatters::crypto::IdentityKeyPair& kp,
+    const std::string& text)
 {
-    shatters::Bytes buf(32 + text.size());
-    std::memcpy(buf.data(), sender.data(), 32);
-    std::memcpy(buf.data() + 32, text.data(), text.size());
+    const auto& sender_pk = kp.ed25519_public();
+
+    shatters::Bytes to_sign(32 + text.size());
+    std::memcpy(to_sign.data(), sender_pk.data(), 32);
+    std::memcpy(to_sign.data() + 32, text.data(), text.size());
+
+    auto sig = kp.sign(shatters::ByteSpan(to_sign)).value();
+
+    shatters::Bytes buf(32 + 64 + text.size());
+    std::memcpy(buf.data(), sender_pk.data(), 32);
+    std::memcpy(buf.data() + 32, sig.data(), 64);
+    std::memcpy(buf.data() + 96, text.data(), text.size());
     return buf;
 }
 
@@ -94,13 +105,27 @@ struct IncomingMessage
 
 static std::optional<IncomingMessage> parse_payload(shatters::ByteSpan data)
 {
-    if (data.size() < 32)
+    if (data.size() < 96) // 32 pk + 64 sig
         return std::nullopt;
-    
+
+    shatters::crypto::PublicKey sender_pk;
+    std::memcpy(sender_pk.data(), data.data(), 32);
+
+    shatters::crypto::Signature sig;
+    std::memcpy(sig.data(), data.data() + 32, 64);
+
+    // reconstruct signed data: [pk:32 | text]
+    shatters::Bytes signed_data(32 + (data.size() - 96));
+    std::memcpy(signed_data.data(),      data.data(),      32);
+    std::memcpy(signed_data.data() + 32, data.data() + 96, data.size() - 96);
+
+    if (shatters::crypto::verify_signature(
+            shatters::ByteSpan(signed_data), sig, sender_pk).is_err())
+        return std::nullopt;
+
     IncomingMessage m;
-    std::memcpy(m.sender_pk.data(), data.data(), 32);
-    m.text.assign(reinterpret_cast<const char*>(data.data() + 32), data.size() - 32);
-    
+    m.sender_pk = sender_pk;
+    m.text.assign(reinterpret_cast<const char*>(data.data() + 96), data.size() - 96);
     return m;
 }
 
@@ -184,9 +209,10 @@ int main(int argc, char* argv[])
     }
     auto& client = *result.value();
 
+    const auto& my_kp   = client.identity().keypair();
     const auto& my_pk   = client.identity().public_key();
-    const auto& my_x_pk = client.identity().keypair().x25519_public();
-    const auto& my_x_sk = client.identity().keypair().x25519_secret();
+    const auto& my_x_pk = my_kp.x25519_public();
+    const auto& my_x_sk = my_kp.x25519_secret();
 
     auto my_addr  = to_hex(my_pk.data(), my_pk.size());
     auto my_inbox = derive_inbox(my_pk);
@@ -403,7 +429,7 @@ int main(int argc, char* argv[])
                 continue;
             }
 
-            auto payload = build_payload(my_pk, text);
+            auto payload = build_payload(my_kp, text);
             auto ct = seal_encrypt(shatters::ByteSpan(payload), their_x25519.value());
 
             auto their_inbox = derive_inbox(contact->public_key);
