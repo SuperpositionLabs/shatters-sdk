@@ -77,7 +77,7 @@ namespace
 Bytes serialize_bundle(const PreKeyBundle& bundle)
 {
     const auto n = static_cast<uint16_t>(bundle.one_time_prekeys.size());
-    const size_t total = 32 + 32 + 64 + 2 + n * 32;
+    const size_t total = 32 + 32 + 64 + 2 + n * (4 + 32);
 
     Bytes out(total);
     size_t pos = 0;
@@ -89,8 +89,8 @@ Bytes serialize_bundle(const PreKeyBundle& bundle)
 
     for (const auto& opk : bundle.one_time_prekeys)
     {
-        std::memcpy(out.data() + pos, opk.data(), 32);
-        pos += 32;
+        write_u32_be(out.data() + pos, opk.id);                         pos += 4;
+        std::memcpy(out.data() + pos, opk.public_key.data(), 32);       pos += 32;
     }
 
     return out;
@@ -111,13 +111,14 @@ Result<PreKeyBundle> deserialize_bundle(ByteSpan data)
 
     uint16_t n = read_u16_be(data.data() + pos); pos += 2;
 
-    if (data.size() < MIN_SIZE + n * 32)
+    if (data.size() < MIN_SIZE + n * (4 + 32))
         return Error{ErrorCode::ProtocolError, "bundle truncated"};
 
     bundle.one_time_prekeys.resize(n);
     for (uint16_t i = 0; i < n; ++i)
     {
-        std::memcpy(bundle.one_time_prekeys[i].data(), data.data() + pos, 32);
+        bundle.one_time_prekeys[i].id = read_u32_be(data.data() + pos); pos += 4;
+        std::memcpy(bundle.one_time_prekeys[i].public_key.data(), data.data() + pos, 32);
         pos += 32;
     }
 
@@ -188,13 +189,14 @@ Result<X3DHResult> initiate(
 
     if (!their_bundle.one_time_prekeys.empty())
     {
+        const auto& chosen_opk = their_bundle.one_time_prekeys[0];
         auto dh4_r = crypto::x25519_dh(
             ek.value().secret_key(),
-            their_bundle.one_time_prekeys[0]
+            chosen_opk.public_key
         );
         SHATTERS_TRY(dh4_r);
         dh4 = std::move(dh4_r).take_value();
-        opk_id = 0;
+        opk_id = chosen_opk.id;
     }
 
     auto sk = derive_sk(

@@ -77,6 +77,31 @@ struct Manager::Impl
         return session_store->update(rec);
     }
 
+    /// Derive a deterministic conversation channel from our address + theirs.
+    /// Both sides will compute the same channel regardless of ratchet state.
+    Channel conv_channel(const std::string& remote_addr) const
+    {
+        auto my_addr = identity->address().to_string();
+        const auto& a = (my_addr < remote_addr) ? my_addr : remote_addr;
+        const auto& b = (my_addr < remote_addr) ? remote_addr : my_addr;
+
+        unsigned char hash[crypto_auth_hmacsha256_BYTES];
+        crypto_auth_hmacsha256_state st;
+        static constexpr unsigned char zero_key[32] = {};
+        crypto_auth_hmacsha256_init(&st, zero_key, sizeof(zero_key));
+        crypto_auth_hmacsha256_update(&st,
+            reinterpret_cast<const unsigned char*>("shatters-conversation"), 21);
+        crypto_auth_hmacsha256_update(&st,
+            reinterpret_cast<const unsigned char*>(a.data()), a.size());
+        crypto_auth_hmacsha256_update(&st,
+            reinterpret_cast<const unsigned char*>(b.data()), b.size());
+        crypto_auth_hmacsha256_final(&st, hash);
+
+        Channel ch{};
+        std::memcpy(ch.data(), hash, CHANNEL_SIZE);
+        return ch;
+    }
+
     Status watch_channel(const std::string& addr, const Channel& channel)
     {
         subscriptions.erase(addr);
@@ -129,11 +154,6 @@ struct Manager::Impl
         auto ps = persist_ratchet(addr);
         if (ps.is_err())
             spdlog::error("persist failed: {}", ps.error().message);
-
-        auto new_ch = it->second.current_channel();
-        auto ws = watch_channel(addr, new_ch);
-        if (ws.is_err())
-            spdlog::error("rewatch failed: {}", ws.error().message);
 
         auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()
@@ -202,7 +222,7 @@ Status Manager::send(const std::string& contact_address, ByteSpan plaintext)
     std::memcpy(wire.data(), header_bytes.data(), header_bytes.size());
     std::memcpy(wire.data() + header_bytes.size(), msg.value().ciphertext.data(), msg.value().ciphertext.size());
 
-    auto ch = dr.current_channel();
+    auto ch = impl_->conv_channel(contact_address);
     auto ps = impl_->session->publish(ch, wire);
     if (ps.is_err())
     {
@@ -298,7 +318,7 @@ Status Manager::initiate_session(
     auto ps = impl_->session->publish(intro_ch, initial_wire);
     SHATTERS_TRY(ps);
 
-    impl_->ratchets.emplace(contact_address, std::move(dr).take_value());
+    impl_->ratchets.insert_or_assign(contact_address, std::move(dr).take_value());
     SHATTERS_TRY(impl_->persist_ratchet(contact_address));
 
     auto state_bytes = ratchet::serialize_state(impl_->ratchets.at(contact_address).state());
@@ -316,7 +336,7 @@ Status Manager::initiate_session(
     };
     SHATTERS_TRY(impl_->session_store->store(rec));
 
-    auto ch = impl_->ratchets.at(contact_address).current_channel();
+    auto ch = impl_->conv_channel(contact_address);
     SHATTERS_TRY(impl_->watch_channel(contact_address, ch));
 
     impl_->message_store->store(contact_address, 0, first_message, now);
@@ -381,7 +401,7 @@ Status Manager::handle_initial_message(
     auto sender_addr = identity::ContactAddress::from_public_key(initial_msg.sender_identity_key);
 
     const auto& addr_str = sender_addr.to_string();
-    impl_->ratchets.emplace(addr_str, std::move(dr).take_value());
+    impl_->ratchets.insert_or_assign(addr_str, std::move(dr).take_value());
 
     auto state_bytes = ratchet::serialize_state(impl_->ratchets.at(addr_str).state());
     auto sealed = impl_->db->encrypt_blob(state_bytes);
@@ -412,7 +432,7 @@ Status Manager::handle_initial_message(
         impl_->contact_store->store(cr);
     }
 
-    auto ch = impl_->ratchets.at(addr_str).current_channel();
+    auto ch = impl_->conv_channel(addr_str);
     SHATTERS_TRY(impl_->watch_channel(addr_str, ch));
 
     impl_->message_store->store(addr_str, 1, pt.value(), now);
@@ -448,7 +468,7 @@ Status Manager::resume_all()
             continue;
         }
 
-        auto ch = impl_->ratchets.at(addr).current_channel();
+        auto ch = impl_->conv_channel(addr);
         auto ws = impl_->watch_channel(addr, ch);
         if (ws.is_err())
             spdlog::warn("watch failed for {}: {}", addr, ws.error().message);
@@ -511,7 +531,7 @@ Status Manager::upload_bundle(uint32_t num_one_time)
     bundle.signed_prekey_sig = sig.value();
 
     for (const auto& r : all_opks.value())
-        bundle.one_time_prekeys.push_back(r.public_key);
+        bundle.one_time_prekeys.push_back({r.id, r.public_key});
 
     auto wire = x3dh::serialize_bundle(bundle);
 

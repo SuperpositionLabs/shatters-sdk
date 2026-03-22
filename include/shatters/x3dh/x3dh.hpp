@@ -9,12 +9,18 @@
 
 namespace shatters::x3dh
 {
+    struct OneTimePreKey
+    {
+        uint32_t             id;
+        crypto::X25519Public public_key;
+    };
+
     struct PreKeyBundle
     {
         crypto::PublicKey         identity_key;
         crypto::X25519Public      signed_prekey;
         crypto::Signature         signed_prekey_sig;
-        std::vector<crypto::X25519Public> one_time_prekeys;
+        std::vector<OneTimePreKey> one_time_prekeys;
     };
 
     [[nodiscard]] Bytes                serialize_bundle(const PreKeyBundle& bundle);
