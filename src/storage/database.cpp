@@ -143,7 +143,7 @@ Result<Database> Database::open(const std::string& path, const std::string& pass
 
     std::memcpy(database.impl_->master_key.data(), key_result.value().data(), crypto::KDF_KEY_SIZE);
 
-    return std::move(database);
+    return database;
 }
 
 Result<Bytes> Database::encrypt_blob(ByteSpan plaintext) const

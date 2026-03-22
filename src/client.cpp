@@ -69,9 +69,8 @@ Result<std::unique_ptr<ShattersClient>> ShattersClient::create(Config config)
     impl.session  = std::make_unique<Session>(*impl.transport);
     impl.deaddrop = std::make_unique<DeadDropService>(*impl.session);
 
-    /*  identity gets wired up after load_or_create below; if no db the
-    *   session will operate without auth.
-    */ 
+    /* identity gets wired up after load_or_create below; if no db the
+       session will operate without auth. */
 
     impl.transport->on_state_change([&impl](ConnectionState state)
     {
