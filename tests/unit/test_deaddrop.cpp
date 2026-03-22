@@ -1,6 +1,7 @@
 #include <shatters/deaddrop/deaddrop.hpp>
 #include <shatters/protocol/message.hpp>
 #include <shatters/messaging/session.hpp>
+#include <shatters/crypto/keys.hpp>
 
 #include <gtest/gtest.h>
 
@@ -162,10 +163,12 @@ protected:
     MockTransport             transport;
     shatters::Session         session{transport};
     shatters::DeadDropService service{session};
+    shatters::crypto::IdentityKeyPair kp_{shatters::crypto::IdentityKeyPair::generate().take_value()};
 
     void SetUp() override
     {
         transport.connect("localhost", 4433);
+        session.set_identity(&kp_);
     }
 
     shatters::DeadDropId make_id(uint8_t fill = 0xAA)
@@ -193,7 +196,9 @@ TEST_F(DeadDropServiceTest, DropSendsEnvelope)
     EXPECT_EQ(msg.value().type, shatters::MessageType::Publish);
     EXPECT_EQ(msg.value().channel, id.channel());
 
-    auto env = shatters::deserialize_envelope(shatters::ByteSpan(msg.value().payload));
+    auto env = shatters::deserialize_envelope(
+        shatters::ByteSpan(msg.value().payload.data() + 64,
+                           msg.value().payload.size() - 64));
     ASSERT_TRUE(env.is_ok());
     EXPECT_EQ(env.value().id, id);
     EXPECT_EQ(env.value().ciphertext, ct);

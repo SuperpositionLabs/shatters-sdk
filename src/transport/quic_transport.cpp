@@ -350,6 +350,8 @@ struct QuicTransport::Impl
                 spdlog::warn("reconnect attempt failed: {}", status.error().message);
 
                 delay = (std::min)(delay * 2, config.max_reconnect_delay_ms);
+                if (delay > 1)
+                    delay += randombytes_uniform(delay / 2);
             }
 
             set_state(ConnectionState::Disconnected);

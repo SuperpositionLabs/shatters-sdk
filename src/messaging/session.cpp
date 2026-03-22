@@ -1,4 +1,5 @@
 #include <shatters/messaging/session.hpp>
+#include <shatters/auth/auth.hpp>
 #include <shatters/protocol/message.hpp>
 
 #include <spdlog/spdlog.h>
@@ -68,6 +69,7 @@ struct SubscriptionEntry
 struct Session::Impl
 {
     ITransport& transport;
+    const crypto::IdentityKeyPair* identity{nullptr};
 
     std::atomic<uint32_t> next_msg_id{1};
     std::atomic<uint64_t> next_sub_id{1};
@@ -167,13 +169,40 @@ Session::Session(ITransport& transport) : impl_(std::make_unique<Impl>(transport
 
 Session::~Session() = default;
 
+void Session::set_identity(const crypto::IdentityKeyPair* kp)
+{
+    impl_->identity = kp;
+}
+
+Status Session::authenticate()
+{
+    if (!impl_->identity)
+        return Error{ErrorCode::InternalError, "no identity set for authentication"};
+
+    auto payload = auth::build_auth_payload(*impl_->identity);
+    SHATTERS_TRY(payload);
+
+    Message msg;
+    msg.type    = MessageType::Authenticate;
+    msg.id      = impl_->alloc_msg_id();
+    msg.payload = std::move(payload).take_value();
+
+    return impl_->send_message(msg);
+}
+
 Status Session::publish(const Channel& channel, ByteSpan data)
 {
+    if (!impl_->identity)
+        return Error{ErrorCode::InternalError, "no identity set"};
+
+    auto proof = auth::build_channel_proof(*impl_->identity, channel, data);
+    SHATTERS_TRY(proof);
+
     Message msg;
     msg.type    = MessageType::Publish;
     msg.id      = impl_->alloc_msg_id();
     msg.channel = channel;
-    msg.payload = Bytes(data.begin(), data.end());
+    msg.payload = std::move(proof).take_value();
 
     return impl_->send_message(msg);
 }
@@ -192,6 +221,22 @@ Result<SubscriptionHandle> Session::subscribe(const Channel& channel, MessageCal
     msg.type    = MessageType::Subscribe;
     msg.id      = impl_->alloc_msg_id();
     msg.channel = channel;
+
+    if (impl_->identity)
+    {
+        auto proof = auth::build_channel_proof(*impl_->identity, channel);
+        if (proof.is_err())
+        {
+            std::unique_lock lock(impl_->sub_mutex);
+            impl_->subscriptions.erase(sub_id);
+            auto& idx = impl_->channel_index[channel];
+            idx.erase(std::remove(idx.begin(), idx.end(), sub_id), idx.end());
+            if (idx.empty())
+                impl_->channel_index.erase(channel);
+            return proof.error();
+        }
+        msg.payload = std::move(proof).take_value();
+    }
 
     auto status = impl_->send_message(msg);
     if (status.is_err())
@@ -238,22 +283,34 @@ Status Session::unsubscribe(SubscriptionId id)
 
 Status Session::retrieve(const Channel& channel, ByteSpan data)
 {
+    if (!impl_->identity)
+        return Error{ErrorCode::InternalError, "no identity set"};
+
+    auto proof = auth::build_channel_proof(*impl_->identity, channel, data);
+    SHATTERS_TRY(proof);
+
     Message msg;
     msg.type    = MessageType::Retrieve;
     msg.id      = impl_->alloc_msg_id();
     msg.channel = channel;
-    msg.payload = Bytes(data.begin(), data.end());
+    msg.payload = std::move(proof).take_value();
 
     return impl_->send_message(msg);
 }
 
 Status Session::upload_bundle(const Channel& channel, ByteSpan payload)
 {
+    if (!impl_->identity)
+        return Error{ErrorCode::InternalError, "no identity set"};
+
+    auto proof = auth::build_channel_proof(*impl_->identity, channel, payload);
+    SHATTERS_TRY(proof);
+
     Message msg;
     msg.type    = MessageType::UploadBundle;
     msg.id      = impl_->alloc_msg_id();
     msg.channel = channel;
-    msg.payload = Bytes(payload.begin(), payload.end());
+    msg.payload = std::move(proof).take_value();
 
     return impl_->send_message(msg);
 }
@@ -276,6 +333,13 @@ void Session::on_error(ErrorCallback callback)
 
 void Session::resubscribe_all()
 {
+    if (impl_->identity)
+    {
+        auto auth_status = authenticate();
+        if (auth_status.is_err())
+            spdlog::warn("failed to re-authenticate: {}", auth_status.error().message);
+    }
+
     std::vector<Channel> channels;
 
     {
@@ -291,6 +355,15 @@ void Session::resubscribe_all()
         msg.type    = MessageType::Subscribe;
         msg.id      = impl_->alloc_msg_id();
         msg.channel = ch;
+
+        if (impl_->identity)
+        {
+            auto proof = auth::build_channel_proof(*impl_->identity, ch);
+            if (proof.is_ok())
+                msg.payload = std::move(proof).take_value();
+            else
+                spdlog::warn("failed to build channel proof for resubscribe");
+        }
 
         auto status = impl_->send_message(msg);
         if (status.is_err())

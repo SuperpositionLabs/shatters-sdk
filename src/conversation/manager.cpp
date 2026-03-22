@@ -192,6 +192,8 @@ Status Manager::send(const std::string& contact_address, ByteSpan plaintext)
 
     auto& dr = impl_->ratchets.at(contact_address);
 
+    auto state_snapshot = dr.state();
+
     auto msg = dr.encrypt(plaintext);
     SHATTERS_TRY(msg);
 
@@ -202,9 +204,22 @@ Status Manager::send(const std::string& contact_address, ByteSpan plaintext)
 
     auto ch = dr.current_channel();
     auto ps = impl_->session->publish(ch, wire);
-    SHATTERS_TRY(ps);
+    if (ps.is_err())
+    {
+        auto rollback = ratchet::DoubleRatchet::from_state(std::move(state_snapshot));
+        if (rollback.is_ok())
+            dr = std::move(rollback).take_value();
+        return ps.error();
+    }
 
-    SHATTERS_TRY(impl_->persist_ratchet(contact_address));
+    auto persist_status = impl_->persist_ratchet(contact_address);
+    if (persist_status.is_err())
+    {
+        auto rollback = ratchet::DoubleRatchet::from_state(std::move(state_snapshot));
+        if (rollback.is_ok())
+            dr = std::move(rollback).take_value();
+        return persist_status.error();
+    }
 
     auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()

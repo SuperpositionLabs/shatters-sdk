@@ -34,8 +34,6 @@ SecureBuffer<N>& SecureBuffer<N>::operator=(SecureBuffer&& other) noexcept
 
 template class SecureBuffer<ED25519_SECRET_KEY_SIZE>;
 template class SecureBuffer<ED25519_SEED_SIZE>;
-template class SecureBuffer<X25519_KEY_SIZE>;
-template class SecureBuffer<X25519_SHARED_SIZE>;
 
 Result<IdentityKeyPair> IdentityKeyPair::generate()
 {

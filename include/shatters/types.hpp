@@ -105,4 +105,4 @@ using ByteSpan = std::span<const uint8_t>;
         auto&& _shatters_try_r_ = (expr);        \
         if (_shatters_try_r_.is_err())           \
             return _shatters_try_r_.error();     \
-    } while (0)
+    } while(0)

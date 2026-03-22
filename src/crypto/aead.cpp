@@ -102,4 +102,16 @@ AeadNonce nonce_from_counter(uint32_t counter)
     return nonce;
 }
 
+AeadNonce nonce_from_prefix_counter(ByteSpan prefix, uint32_t counter)
+{
+    AeadNonce nonce{};
+    const size_t prefix_len = (prefix.size() < 20) ? prefix.size() : 20;
+    std::memcpy(nonce.data(), prefix.data(), prefix_len);
+    nonce[20] = static_cast<uint8_t>((counter >> 24) & 0xFF);
+    nonce[21] = static_cast<uint8_t>((counter >> 16) & 0xFF);
+    nonce[22] = static_cast<uint8_t>((counter >>  8) & 0xFF);
+    nonce[23] = static_cast<uint8_t>( counter        & 0xFF);
+    return nonce;
+}
+
 }

@@ -7,6 +7,8 @@
 namespace shatters
 {
 
+constexpr uint8_t PROTOCOL_VERSION = 1;
+
 enum class MessageType : uint8_t
 {
     Publish       = 0x01,
@@ -15,6 +17,7 @@ enum class MessageType : uint8_t
     Retrieve      = 0x04,
     UploadBundle  = 0x05,
     FetchBundle   = 0x06,
+    Authenticate  = 0x07,
 
     Ack           = 0x10,
     Nack          = 0x11,

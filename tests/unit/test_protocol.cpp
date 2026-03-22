@@ -138,8 +138,9 @@ TEST_F(ProtocolTest, DeserializeTooShort)
 
 TEST_F(ProtocolTest, DeserializeExactMinHeader)
 {
-    shatters::Bytes exact(37, 0x00);
-    exact[0] = 0x01;
+    shatters::Bytes exact(38, 0x00);
+    exact[0] = shatters::PROTOCOL_VERSION;
+    exact[1] = 0x01;
     auto result = shatters::deserialize(exact);
 
     ASSERT_TRUE(result.is_ok());
@@ -190,7 +191,7 @@ TEST_F(ProtocolTest, FixedHeaderSize)
     msg.channel = make_channel(0x42);
 
     auto bytes = shatters::serialize(msg);
-    EXPECT_EQ(bytes.size(), 37u);
+    EXPECT_EQ(bytes.size(), 38u);
 }
 
 }

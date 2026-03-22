@@ -1,5 +1,6 @@
 #include <shatters/messaging/session.hpp>
 #include <shatters/protocol/message.hpp>
+#include <shatters/crypto/keys.hpp>
 
 #include <gtest/gtest.h>
 
@@ -83,6 +84,11 @@ TEST_F(SessionTest, PublishSendsMessage)
 {
     shatters::Session session(transport);
     transport.connect("localhost", 4433);
+
+    auto kp_result = shatters::crypto::IdentityKeyPair::generate();
+    ASSERT_TRUE(kp_result.is_ok());
+    auto kp = std::move(kp_result).take_value();
+    session.set_identity(&kp);
 
     auto ch = make_channel(0x01);
     std::string payload_str = "hello";

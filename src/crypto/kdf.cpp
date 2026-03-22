@@ -142,4 +142,17 @@ std::array<uint8_t, ARGON2_SALT_SIZE> generate_salt()
     return salt;
 }
 
+Result<std::array<uint8_t, NONCE_PREFIX_SIZE>> derive_nonce_prefix(const KdfKey& chain_key)
+{
+    static constexpr std::string_view info = "$hatter$-nonce-prefix";
+    const ByteSpan info_span{reinterpret_cast<const uint8_t*>(info.data()), info.size()};
+
+    auto expanded = hkdf_expand({chain_key.data(), chain_key.size()}, info_span, NONCE_PREFIX_SIZE);
+    SHATTERS_TRY(expanded);
+
+    std::array<uint8_t, NONCE_PREFIX_SIZE> prefix{};
+    std::memcpy(prefix.data(), expanded.value().data(), NONCE_PREFIX_SIZE);
+    return prefix;
+}
+
 }

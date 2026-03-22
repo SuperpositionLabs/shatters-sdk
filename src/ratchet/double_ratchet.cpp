@@ -188,6 +188,9 @@ Result<DoubleRatchet> DoubleRatchet::from_state(RatchetState state)
 
 Result<RatchetMessage> DoubleRatchet::encrypt(ByteSpan plaintext)
 {
+    if (state_.send_count == COUNTER_MAX)
+        return Error{ErrorCode::BufferOverflow, "send counter exhausted, ratchet step required"};
+
     auto ck_pair = crypto::chain_kdf(state_.send_chain_key);
     SHATTERS_TRY(ck_pair);
 
@@ -203,7 +206,12 @@ Result<RatchetMessage> DoubleRatchet::encrypt(ByteSpan plaintext)
 
     crypto::AeadKey aead_key{};
     std::memcpy(aead_key.data(), mk.data(), 32);
-    auto nonce = crypto::nonce_from_counter(state_.send_count);
+
+    auto nonce_prefix = crypto::derive_nonce_prefix(mk);
+    SHATTERS_TRY(nonce_prefix);
+    auto nonce = crypto::nonce_from_prefix_counter(
+        {nonce_prefix.value().data(), nonce_prefix.value().size()},
+        state_.send_count);
 
     auto ct = crypto::aead_encrypt(plaintext, header_bytes, nonce, aead_key);
     SHATTERS_TRY(ct);
@@ -229,7 +237,12 @@ Result<Bytes> DoubleRatchet::decrypt(const RatchetMessage& message)
 
         crypto::AeadKey aead_key{};
         std::memcpy(aead_key.data(), mk.data(), 32);
-        auto nonce = crypto::nonce_from_counter(h.message_number);
+        auto nonce_prefix = crypto::derive_nonce_prefix(mk);
+        if (nonce_prefix.is_err())
+            return nonce_prefix.error();
+        auto nonce = crypto::nonce_from_prefix_counter(
+            {nonce_prefix.value().data(), nonce_prefix.value().size()},
+            h.message_number);
         auto header_bytes = serialize_header(h);
 
         return crypto::aead_decrypt(message.ciphertext, header_bytes, nonce, aead_key);
@@ -263,7 +276,11 @@ Result<Bytes> DoubleRatchet::decrypt(const RatchetMessage& message)
 
     crypto::AeadKey aead_key{};
     std::memcpy(aead_key.data(), mk.data(), 32);
-    auto nonce = crypto::nonce_from_counter(h.message_number);
+    auto nonce_prefix = crypto::derive_nonce_prefix(mk);
+    SHATTERS_TRY(nonce_prefix);
+    auto nonce = crypto::nonce_from_prefix_counter(
+        {nonce_prefix.value().data(), nonce_prefix.value().size()},
+        h.message_number);
     auto header_bytes = serialize_header(h);
 
     return crypto::aead_decrypt(message.ciphertext, header_bytes, nonce, aead_key);
@@ -332,6 +349,11 @@ Result<crypto::KdfKey> DoubleRatchet::skip_message_keys(
         SkippedKeyIndex idx{dh_pub, counter};
         state_.skipped_keys[idx] = last_mk;
         counter++;
+    }
+
+    while (state_.skipped_keys.size() > MAX_SKIP * 2)
+    {
+        state_.skipped_keys.erase(state_.skipped_keys.begin());
     }
 
     return last_mk;

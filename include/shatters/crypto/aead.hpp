@@ -45,4 +45,6 @@ AeadNonce generate_nonce();
 
 AeadNonce nonce_from_counter(uint32_t counter);
 
+AeadNonce nonce_from_prefix_counter(ByteSpan prefix, uint32_t counter);
+
 }

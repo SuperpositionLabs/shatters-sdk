@@ -26,12 +26,13 @@ namespace
 
 Bytes serialize(const Message& msg)
 {
-    constexpr size_t HEADER = 1 + 4 + CHANNEL_SIZE;
+    constexpr size_t HEADER = 1 + 1 + 4 + CHANNEL_SIZE;
     size_t total = HEADER + msg.payload.size();
 
     Bytes out(total);
     size_t pos = 0;
 
+    out[pos++] = PROTOCOL_VERSION;
     out[pos++] = static_cast<uint8_t>(msg.type);
 
     write_u32(out.data() + pos, msg.id);
@@ -48,13 +49,17 @@ Bytes serialize(const Message& msg)
 
 Result<Message> deserialize(ByteSpan data)
 {
-    constexpr size_t MIN_HEADER = 1 + 4 + CHANNEL_SIZE;
+    constexpr size_t MIN_HEADER = 1 + 1 + 4 + CHANNEL_SIZE;
 
     if (data.size() < MIN_HEADER)
         return Error{ErrorCode::ProtocolError, "message too short"};
 
     Message msg;
     size_t pos = 0;
+
+    uint8_t version = data[pos++];
+    if (version != PROTOCOL_VERSION)
+        return Error{ErrorCode::ProtocolError, "unsupported protocol version"};
 
     msg.type = static_cast<MessageType>(data[pos++]);
 

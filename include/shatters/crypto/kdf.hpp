@@ -43,4 +43,8 @@ Result<KdfKey> derive_key_from_password(
 
 std::array<uint8_t, ARGON2_SALT_SIZE> generate_salt();
 
+constexpr size_t NONCE_PREFIX_SIZE = 20;
+
+Result<std::array<uint8_t, NONCE_PREFIX_SIZE>> derive_nonce_prefix(const KdfKey& chain_key);
+
 }

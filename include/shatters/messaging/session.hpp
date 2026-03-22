@@ -1,5 +1,6 @@
 #pragma once
 
+#include <shatters/crypto/keys.hpp>
 #include <shatters/messaging/subscription.hpp>
 #include <shatters/transport/transport.hpp>
 #include <shatters/types.hpp>
@@ -19,6 +20,10 @@ public:
     Session(const Session&) = delete;
     Session& operator=(const Session&) = delete;
 
+    void set_identity(const crypto::IdentityKeyPair* kp);
+
+    Status authenticate();
+
     Status                     publish(const Channel& channel, ByteSpan data);
     Result<SubscriptionHandle> subscribe(const Channel& channel, MessageCallback callback);
     Status                     unsubscribe(SubscriptionId id);
@@ -30,6 +35,7 @@ public:
     using ErrorCallback = std::function<void(Error)>;
     void on_error(ErrorCallback callback);
 
+    /// Re-authenticate and resubscribe all tracked channels after reconnect.
     void resubscribe_all();
 
 private:

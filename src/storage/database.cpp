@@ -1,4 +1,5 @@
 #include <shatters/storage/database.hpp>
+#include <shatters/crypto/keys.hpp>
 
 #include <sqlite3.h>
 #include <sodium.h>
@@ -56,8 +57,8 @@ CREATE TABLE IF NOT EXISTS prekeys (
 
 struct Database::Impl
 {
-    sqlite3*          db = nullptr;
-    crypto::AeadKey   master_key{};
+    sqlite3*                          db = nullptr;
+    crypto::SecureBuffer<crypto::AEAD_KEY_SIZE> master_key;
 };
 
 Database::~Database()
@@ -66,7 +67,6 @@ Database::~Database()
     {
         if (impl_->db)
             sqlite3_close(impl_->db);
-        sodium_memzero(impl_->master_key.data(), impl_->master_key.size());
     }
 }
 
@@ -148,12 +148,12 @@ Result<Database> Database::open(const std::string& path, const std::string& pass
 
 Result<Bytes> Database::encrypt_blob(ByteSpan plaintext) const
 {
-    return crypto::aead_seal(plaintext, {}, impl_->master_key);
+    return crypto::aead_seal(plaintext, {}, impl_->master_key.array());
 }
 
 Result<Bytes> Database::decrypt_blob(ByteSpan sealed) const
 {
-    return crypto::aead_open(sealed, {}, impl_->master_key);
+    return crypto::aead_open(sealed, {}, impl_->master_key.array());
 }
 
 Status Database::execute(const std::string& sql)
