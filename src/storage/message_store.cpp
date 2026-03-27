@@ -52,7 +52,7 @@ Result<std::vector<MessageRecord>> MessageStore::list(
     int rc = sqlite3_prepare_v2(db,
         "SELECT id, contact_address, direction, encrypted_content, timestamp_ms "
         "FROM messages WHERE contact_address = ? "
-        "ORDER BY timestamp_ms DESC LIMIT ? OFFSET ?",
+        "ORDER BY timestamp_ms ASC LIMIT ? OFFSET ?",
         -1, &stmt, nullptr
     );
     if (rc != SQLITE_OK)

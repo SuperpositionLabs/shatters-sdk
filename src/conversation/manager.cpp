@@ -2,6 +2,7 @@
 #include <shatters/deaddrop/deaddrop.hpp>
 #include <shatters/messaging/session.hpp>
 
+#include <sqlite3.h>
 #include <sodium.h>
 #include <spdlog/spdlog.h>
 
@@ -9,6 +10,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace shatters::conversation
 {
@@ -26,12 +28,18 @@ struct Manager::Impl
 
     std::optional<crypto::X25519KeyPair> signed_prekey;
 
-    std::mutex                 mu;
+    std::recursive_mutex       mu;
     IncomingCallback           on_message_cb;
 
     std::unordered_map<std::string, ratchet::DoubleRatchet> ratchets;
 
     std::unordered_map<std::string, SubscriptionHandle> subscriptions;
+
+    std::optional<SubscriptionHandle> intro_subscription;
+
+    // Tracks contacts for which initiate_session() was called in this run.
+    // Used to distinguish real-time dual-initiation from stale deaddrop replays.
+    std::unordered_set<std::string> initiated_this_session;
 
     Status load_ratchet(const std::string& addr)
     {
@@ -77,8 +85,6 @@ struct Manager::Impl
         return session_store->update(rec);
     }
 
-    /// Derive a deterministic conversation channel from our address + theirs.
-    /// Both sides will compute the same channel regardless of ratchet state.
     Channel conv_channel(const std::string& remote_addr) const
     {
         auto my_addr = identity->address().to_string();
@@ -144,6 +150,9 @@ struct Manager::Impl
             return;
         }
 
+        if (msg.header.dh_public == it->second.state().dh_self_public)
+            return;
+
         auto pt = it->second.decrypt(msg);
         if (pt.is_err())
         {
@@ -197,9 +206,64 @@ Result<std::unique_ptr<Manager>> Manager::create(
     impl.message_store  = &message_store;
     impl.prekey_store   = &prekey_store;
 
-    auto spk = crypto::X25519KeyPair::generate();
-    SHATTERS_TRY(spk);
-    impl.signed_prekey = std::move(spk).take_value();
+    bool spk_loaded = false;
+    auto* sqlite_db = static_cast<sqlite3*>(db.raw_handle());
+    {
+        sqlite3_stmt* stmt = nullptr;
+        int rc = sqlite3_prepare_v2(sqlite_db,
+            "SELECT value FROM metadata WHERE key = 'signed_prekey'",
+            -1, &stmt, nullptr
+        );
+        if (rc == SQLITE_OK)
+        {
+            if (sqlite3_step(stmt) == SQLITE_ROW)
+            {
+                const void* blob = sqlite3_column_blob(stmt, 0);
+                int blob_len = sqlite3_column_bytes(stmt, 0);
+                if (blob && blob_len > 0)
+                {
+                    auto dec = db.decrypt_blob(
+                        ByteSpan(static_cast<const uint8_t*>(blob),
+                                 static_cast<size_t>(blob_len)));
+                    if (dec.is_ok() && dec.value().size() == crypto::X25519_KEY_SIZE)
+                    {
+                        auto kp = crypto::X25519KeyPair::from_secret(dec.value());
+                        if (kp.is_ok())
+                        {
+                            impl.signed_prekey = std::move(kp).take_value();
+                            spk_loaded = true;
+                        }
+                    }
+                }
+            }
+            sqlite3_finalize(stmt);
+        }
+    }
+
+    if (!spk_loaded)
+    {
+        auto spk = crypto::X25519KeyPair::generate();
+        SHATTERS_TRY(spk);
+        impl.signed_prekey = std::move(spk).take_value();
+
+        auto sealed = db.encrypt_blob(impl.signed_prekey->secret_key().span());
+        if (sealed.is_ok())
+        {
+            sqlite3_stmt* stmt = nullptr;
+            int rc = sqlite3_prepare_v2(sqlite_db,
+                "INSERT OR REPLACE INTO metadata (key, value) VALUES ('signed_prekey', ?)",
+                -1, &stmt, nullptr);
+            if (rc == SQLITE_OK)
+            {
+                sqlite3_bind_blob(stmt, 1,
+                    sealed.value().data(),
+                    static_cast<int>(sealed.value().size()),
+                    SQLITE_STATIC);
+                sqlite3_step(stmt);
+                sqlite3_finalize(stmt);
+            }
+        }
+    }
 
     return std::move(mgr);
 }
@@ -319,6 +383,7 @@ Status Manager::initiate_session(
     SHATTERS_TRY(ps);
 
     impl_->ratchets.insert_or_assign(contact_address, std::move(dr).take_value());
+    impl_->initiated_this_session.insert(contact_address);
     SHATTERS_TRY(impl_->persist_ratchet(contact_address));
 
     auto state_bytes = ratchet::serialize_state(impl_->ratchets.at(contact_address).state());
@@ -349,6 +414,29 @@ Status Manager::handle_initial_message(
     ByteSpan                    ciphertext)
 {
     std::lock_guard lock(impl_->mu);
+
+    auto sender_addr = identity::ContactAddress::from_public_key(initial_msg.sender_identity_key);
+    const auto& addr_str = sender_addr.to_string();
+
+    if (impl_->ratchets.contains(addr_str))
+    {
+        if (!impl_->initiated_this_session.contains(addr_str))
+        {
+            // Session loaded from DB on restart — stale deaddrop replay, ignore
+            spdlog::info("ignoring stale InitialMessage from {} (session already established)", addr_str);
+            return {};
+        }
+
+        // Genuine dual-initiation: both peers initiated in this session
+        auto my_addr = impl_->identity->address().to_string();
+        if (my_addr < addr_str)
+        {
+            spdlog::info("dual-initiation: keeping ours (we < {})", addr_str);
+            return {};
+        }
+
+        spdlog::info("dual-initiation: accepting theirs ({} < us)", addr_str);
+    }
 
     const crypto::X25519KeyPair* opk_ptr = nullptr;
     std::optional<crypto::X25519KeyPair> opk_kp;
@@ -398,9 +486,6 @@ Status Manager::handle_initial_message(
     auto pt = dr.value().decrypt(rm);
     SHATTERS_TRY(pt);
 
-    auto sender_addr = identity::ContactAddress::from_public_key(initial_msg.sender_identity_key);
-
-    const auto& addr_str = sender_addr.to_string();
     impl_->ratchets.insert_or_assign(addr_str, std::move(dr).take_value());
 
     auto state_bytes = ratchet::serialize_state(impl_->ratchets.at(addr_str).state());
@@ -410,14 +495,6 @@ Status Manager::handle_initial_message(
     auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
-
-    storage::SessionRecord rec
-    {
-        .contact_address = addr_str,
-        .encrypted_state = std::move(sealed).take_value(),
-        .updated_at      = now,
-    };
-    SHATTERS_TRY(impl_->session_store->store(rec));
 
     auto existing = impl_->contact_store->find(addr_str);
     if (existing.is_ok() && !existing.value().has_value())
@@ -431,6 +508,14 @@ Status Manager::handle_initial_message(
         };
         impl_->contact_store->store(cr);
     }
+
+    storage::SessionRecord rec
+    {
+        .contact_address = addr_str,
+        .encrypted_state = std::move(sealed).take_value(),
+        .updated_at      = now,
+    };
+    SHATTERS_TRY(impl_->session_store->store(rec));
 
     auto ch = impl_->conv_channel(addr_str);
     SHATTERS_TRY(impl_->watch_channel(addr_str, ch));
@@ -490,6 +575,26 @@ Status Manager::resume_all()
                 spdlog::error("handle initial: {}", status.error().message);
         });
     SHATTERS_TRY(handle);
+
+    impl_->intro_subscription = std::move(handle).take_value();
+
+    // Retrieve offline messages from the deaddrop for conversation channels only.
+    // The intro channel is NOT retrieved: stale InitialMessages would replay
+    // X3DH with consumed OPKs, corrupting established sessions.
+    constexpr uint32_t ttl_val = 86400;
+    uint8_t ttl_buf[4] = {
+        static_cast<uint8_t>((ttl_val >> 24) & 0xFF),
+        static_cast<uint8_t>((ttl_val >> 16) & 0xFF),
+        static_cast<uint8_t>((ttl_val >>  8) & 0xFF),
+        static_cast<uint8_t>((ttl_val      ) & 0xFF),
+    };
+    ByteSpan ttl_span(ttl_buf, 4);
+
+    for (const auto& addr : addrs.value())
+    {
+        auto ch = impl_->conv_channel(addr);
+        impl_->session->retrieve(ch, ttl_span);
+    }
 
     return {};
 }

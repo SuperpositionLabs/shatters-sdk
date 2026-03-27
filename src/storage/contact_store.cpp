@@ -40,6 +40,28 @@ Status ContactStore::remove(const std::string& address)
     auto* db = static_cast<sqlite3*>(db_.raw_handle());
     sqlite3_stmt* stmt = nullptr;
 
+    sqlite3_stmt* del_sessions = nullptr;
+    sqlite3_prepare_v2(db,
+        "DELETE FROM sessions WHERE contact_address = ?",
+        -1, &del_sessions, nullptr);
+    if (del_sessions)
+    {
+        sqlite3_bind_text(del_sessions, 1, address.c_str(), static_cast<int>(address.size()), SQLITE_STATIC);
+        sqlite3_step(del_sessions);
+        sqlite3_finalize(del_sessions);
+    }
+
+    sqlite3_stmt* del_messages = nullptr;
+    sqlite3_prepare_v2(db,
+        "DELETE FROM messages WHERE contact_address = ?",
+        -1, &del_messages, nullptr);
+    if (del_messages)
+    {
+        sqlite3_bind_text(del_messages, 1, address.c_str(), static_cast<int>(address.size()), SQLITE_STATIC);
+        sqlite3_step(del_messages);
+        sqlite3_finalize(del_messages);
+    }
+
     int rc = sqlite3_prepare_v2(db,
         "DELETE FROM contacts WHERE address = ?",
         -1, &stmt, nullptr
