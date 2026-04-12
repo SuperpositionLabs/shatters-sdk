@@ -97,6 +97,10 @@ find_package(msquic CONFIG REQUIRED)
 find_package(unofficial-sodium CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 
+if(UNIX)
+    find_package(OpenSSL REQUIRED)
+endif()
+
 file(GLOB_RECURSE SDK_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 file(GLOB_RECURSE SDK_HEADERS CONFIGURE_DEPENDS "include/*.hpp")
 
@@ -122,6 +126,7 @@ target_link_libraries(shatters-sdk
         msquic
         spdlog::spdlog
         unofficial::sqlite3::sqlite3
+        $<$<PLATFORM_ID:Linux,Darwin>:OpenSSL::Crypto>
 )
 
 if(SHATTERS_BUILD_TESTS)

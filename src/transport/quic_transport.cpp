@@ -14,6 +14,8 @@
 
 #ifdef _WIN32
 #include <wincrypt.h>
+#elif defined(__linux__) || defined(__APPLE__)
+#include <openssl/x509.h>
 #endif
 
 namespace shatters
@@ -432,8 +434,47 @@ struct QuicTransport::Impl
                 }
 
                 spdlog::info("tls certificate pin verified");
+#elif defined(__linux__) || defined(__APPLE__)
+                {
+                    // On Linux/macOS MsQuic exposes the peer certificate as X509* (OpenSSL).
+                    // Serialize to DER, then hash with libsodium and compare.
+                    auto* x509 = static_cast<X509*>(
+                        event->PEER_CERTIFICATE_RECEIVED.Certificate);
+                    if (!x509)
+                    {
+                        spdlog::error("tls pin: no peer certificate provided");
+                        return QUIC_STATUS_INTERNAL_ERROR;
+                    }
+
+                    unsigned char* der_buf = nullptr;
+                    int der_len = i2d_X509(x509, &der_buf);
+                    if (der_len <= 0 || !der_buf)
+                    {
+                        spdlog::error("tls pin: failed to DER-encode peer certificate");
+                        return QUIC_STATUS_INTERNAL_ERROR;
+                    }
+
+                    unsigned char hash[crypto_hash_sha256_BYTES];
+                    crypto_hash_sha256(
+                        hash, der_buf,
+                        static_cast<unsigned long long>(der_len));
+                    OPENSSL_free(der_buf);
+
+                    if (self->config.tls_pin_sha256.size() != crypto_hash_sha256_BYTES ||
+                        sodium_memcmp(
+                            hash,
+                            self->config.tls_pin_sha256.data(),
+                            crypto_hash_sha256_BYTES) != 0)
+                    {
+                        spdlog::error("tls certificate pin mismatch");
+                        return QUIC_STATUS_INTERNAL_ERROR;
+                    }
+
+                    spdlog::info("tls certificate pin verified");
+                }
 #else
-                spdlog::warn("tls certificate pinning is not implemented");
+                spdlog::error("tls certificate pinning not supported on this platform, rejecting connection");
+                return QUIC_STATUS_INTERNAL_ERROR;
 #endif
                 break;
             }

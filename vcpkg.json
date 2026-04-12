@@ -11,6 +11,10 @@
         {
             "name": "msquic",
             "features": ["0-rtt"]
+        },
+        {
+            "name": "openssl",
+            "platform": "linux | osx"
         }
     ]
 }
