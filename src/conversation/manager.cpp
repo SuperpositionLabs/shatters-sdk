@@ -72,6 +72,7 @@ struct Manager::Impl
 
         auto state_bytes = ratchet::serialize_state(it->second.state());
         auto sealed = db->encrypt_blob(state_bytes);
+        sodium_memzero(state_bytes.data(), state_bytes.size());
         SHATTERS_TRY(sealed);
 
         storage::SessionRecord rec
@@ -388,6 +389,7 @@ Status Manager::initiate_session(
 
     auto state_bytes = ratchet::serialize_state(impl_->ratchets.at(contact_address).state());
     auto sealed = impl_->db->encrypt_blob(state_bytes);
+    sodium_memzero(state_bytes.data(), state_bytes.size());
     SHATTERS_TRY(sealed);
 
     auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -490,6 +492,7 @@ Status Manager::handle_initial_message(
 
     auto state_bytes = ratchet::serialize_state(impl_->ratchets.at(addr_str).state());
     auto sealed = impl_->db->encrypt_blob(state_bytes);
+    sodium_memzero(state_bytes.data(), state_bytes.size());
     SHATTERS_TRY(sealed);
 
     auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
