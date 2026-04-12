@@ -114,6 +114,11 @@ struct QuicTransport::Impl
     bool connection_shutdown_complete = false;
     bool stream_shutdown_complete     = false;
 
+    std::mutex              handshake_mutex;
+    std::condition_variable handshake_cv;
+    bool handshake_done = false;
+    bool handshake_ok   = false;
+
     std::atomic<bool> user_disconnecting{false};
     std::atomic<bool> reconnect_in_progress{false};
     std::jthread      reconnect_thread;
@@ -340,13 +345,30 @@ struct QuicTransport::Impl
 
                 spdlog::info("reconnecting to {}:{} (delay={}ms)", host, port, delay);
 
+                // Reset handshake gate for the new attempt.
+                {
+                    std::lock_guard hs_lock(handshake_mutex);
+                    handshake_done = false;
+                    handshake_ok   = false;
+                }
+
                 auto status = try_connect();
                 if (status.is_ok())
                 {
-                    spdlog::info("reconnected successfully");
-                    set_state(ConnectionState::Connected);
-                    reconnect_in_progress.store(false);
-                    return;
+                    std::unique_lock hs_lock(handshake_mutex);
+                    auto timeout = std::chrono::milliseconds(config.idle_timeout_ms);
+                    handshake_cv.wait_for(hs_lock, timeout,
+                        [this] { return handshake_done; });
+
+                    if (handshake_ok)
+                    {
+                        spdlog::info("reconnected successfully");
+                        reconnect_in_progress.store(false);
+                        return;
+                    }
+
+                    spdlog::warn("reconnect handshake failed after connect");
+                    status = Error{ErrorCode::NetworkError, "reconnect handshake failed"};
                 }
 
                 spdlog::warn("reconnect attempt failed: {}", status.error().message);
@@ -375,10 +397,26 @@ struct QuicTransport::Impl
                         reinterpret_cast<const char*>(
                             event->CONNECTED.NegotiatedAlpn + 1),
                         event->CONNECTED.NegotiatedAlpn[0]));
+                {
+                    std::lock_guard hs_lock(self->handshake_mutex);
+                    self->handshake_done = true;
+                    self->handshake_ok   = true;
+                }
+                self->handshake_cv.notify_one();
+                self->set_state(ConnectionState::Connected);
                 break;
 
             case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
                 spdlog::warn("quic shutdown by transport: 0x{:x}", event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
+                {
+                    std::lock_guard hs_lock(self->handshake_mutex);
+                    if (!self->handshake_done)
+                    {
+                        self->handshake_done = true;
+                        self->handshake_ok   = false;
+                        self->handshake_cv.notify_one();
+                    }
+                }
                 self->set_state(ConnectionState::Disconnected);
                 self->begin_reconnect();
                 break;
@@ -553,6 +591,12 @@ Status QuicTransport::connect(const std::string& host, uint16_t port)
     impl_->user_disconnecting.store(false);
     impl_->set_state(ConnectionState::Connecting);
 
+    {
+        std::lock_guard hs_lock(impl_->handshake_mutex);
+        impl_->handshake_done = false;
+        impl_->handshake_ok   = false;
+    }
+
     auto status = impl_->try_connect();
     if (status.is_err())
     {
@@ -560,7 +604,20 @@ Status QuicTransport::connect(const std::string& host, uint16_t port)
         return status;
     }
 
-    impl_->set_state(ConnectionState::Connected);
+    {
+        std::unique_lock hs_lock(impl_->handshake_mutex);
+        auto timeout = std::chrono::milliseconds(impl_->config.idle_timeout_ms);
+        impl_->handshake_cv.wait_for(hs_lock, timeout,
+            [this] { return impl_->handshake_done; });
+
+        if (!impl_->handshake_ok)
+        {
+            impl_->set_state(ConnectionState::Disconnected);
+            impl_->cleanup_resources();
+            return Error{ErrorCode::NetworkError, "connection handshake failed or timed out"};
+        }
+    }
+
     return Status{};
 }
 
