@@ -157,7 +157,11 @@ struct Manager::Impl
         auto pt = it->second.decrypt(msg);
         if (pt.is_err())
         {
-            spdlog::error("decrypt failed for {}: {}", addr, pt.error().message);
+            // Benign in normal operation: relay redelivers / dead-drop replays
+            // an envelope whose message key has already been consumed.
+            // Demote to warn so it doesn't surface as an error to the UI/logs.
+            spdlog::warn("ignoring undecryptable envelope from {}: {}",
+                         addr, pt.error().message);
             return;
         }
 
@@ -449,6 +453,16 @@ Status Manager::handle_initial_message(
         SHATTERS_TRY(rec);
         if (rec.value().has_value())
         {
+            // OPK already consumed → this is a stale dead-drop replay. Reject
+            // before doing X3DH so we don't spawn a duplicate ratchet that
+            // would shadow the real session under addr_str.
+            if (rec.value()->used)
+            {
+                spdlog::info("ignoring InitialMessage with consumed OPK {} from {}",
+                             initial_msg.opk_id, addr_str);
+                return {};
+            }
+
             auto kp = impl_->prekey_store->decrypt(rec.value().value());
             SHATTERS_TRY(kp);
 
@@ -581,9 +595,13 @@ Status Manager::resume_all()
 
     impl_->intro_subscription = std::move(handle).take_value();
 
-    // Retrieve offline messages from the deaddrop for conversation channels only.
-    // The intro channel is NOT retrieved: stale InitialMessages would replay
-    // X3DH with consumed OPKs, corrupting established sessions.
+    // Retrieve queued envelopes from the relay's dead-drop for both per-conversation
+    // channels (offline ratchet messages) and the local intro channel (offline X3DH
+    // InitialMessages from new peers). Stale replays are filtered downstream:
+    //   * conversation channel: replays of old ratchet messages are rejected by the
+    //     ratchet itself (counter checks) or by the dh_self_public guard in on_incoming.
+    //   * intro channel: replays are rejected by handle_initial_message based on
+    //     prior session presence and OPK consumption status.
     constexpr uint32_t ttl_val = 86400;
     uint8_t ttl_buf[4] = {
         static_cast<uint8_t>((ttl_val >> 24) & 0xFF),
@@ -598,6 +616,8 @@ Status Manager::resume_all()
         auto ch = impl_->conv_channel(addr);
         impl_->session->retrieve(ch, ttl_span);
     }
+
+    impl_->session->retrieve(intro_ch, ttl_span);
 
     return {};
 }

@@ -90,20 +90,29 @@ struct Session::Impl
 
     void dispatch_data(const Message& msg)
     {
-        std::shared_lock lock(sub_mutex);
-        auto it = channel_index.find(msg.channel);
-        if (it == channel_index.end())
-            return;
-
-        for (auto sub_id : it->second)
+        // Collect callbacks under the lock, then invoke them after releasing it.
+        // Invoking callbacks while holding sub_mutex would deadlock if the
+        // callback synchronously calls back into Session methods that need a
+        // unique_lock on sub_mutex (e.g. subscribe/unsubscribe).
+        std::vector<MessageCallback> to_invoke;
         {
-            auto sit = subscriptions.find(sub_id);
-            if (sit != subscriptions.end() && sit->second.callback)
+            std::shared_lock lock(sub_mutex);
+            auto it = channel_index.find(msg.channel);
+            if (it == channel_index.end())
+                return;
+
+            to_invoke.reserve(it->second.size());
+            for (auto sub_id : it->second)
             {
-                ByteSpan payload(msg.payload);
-                sit->second.callback(msg.channel, payload);
+                auto sit = subscriptions.find(sub_id);
+                if (sit != subscriptions.end() && sit->second.callback)
+                    to_invoke.push_back(sit->second.callback);
             }
         }
+
+        ByteSpan payload(msg.payload);
+        for (auto& cb : to_invoke)
+            cb(msg.channel, payload);
     }
 
     void dispatch_error(const Message& msg)

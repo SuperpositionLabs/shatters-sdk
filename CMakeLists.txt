@@ -169,6 +169,12 @@ if(SHATTERS_BUILD_EXAMPLES)
     if(MSVC)
         target_compile_options(chat PRIVATE /utf-8)
     endif()
+
+    add_executable(e2e_repro examples/e2e_repro.cpp)
+    target_link_libraries(e2e_repro PRIVATE shatters-sdk spdlog::spdlog)
+    if(MSVC)
+        target_compile_options(e2e_repro PRIVATE /utf-8)
+    endif()
 endif()
 
 include(GNUInstallDirs)
