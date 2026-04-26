@@ -9,6 +9,7 @@
 #include <chrono>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -41,6 +42,22 @@ struct Manager::Impl
     // Used to distinguish real-time dual-initiation from stale deaddrop replays.
     std::unordered_set<std::string> initiated_this_session;
 
+    // Tracks every dh_self_public our local ratchet has ever held for a given
+    // contact, in this process lifetime. Used to filter echoes the relay sends
+    // back to us when we publish on a conversation channel that we are also
+    // subscribed to. Without this we'd misinterpret a delayed echo of one of
+    // our own envelopes as a peer message after we ratchet, which produces a
+    // "cannot skip backwards" error from the ratchet (or, worse, an erroneous
+    // dh_ratchet_step seeded with our own DH).
+    std::unordered_map<std::string, std::set<crypto::X25519Public>> own_dhs;
+
+    void record_self_dh(const std::string& addr)
+    {
+        auto it = ratchets.find(addr);
+        if (it == ratchets.end()) return;
+        own_dhs[addr].insert(it->second.state().dh_self_public);
+    }
+
     Status load_ratchet(const std::string& addr)
     {
         if (ratchets.contains(addr))
@@ -61,6 +78,7 @@ struct Manager::Impl
         SHATTERS_TRY(dr);
 
         ratchets.emplace(addr, std::move(dr).take_value());
+        own_dhs[addr].insert(ratchets.at(addr).state().dh_self_public);
         return {};
     }
 
@@ -151,7 +169,13 @@ struct Manager::Impl
             return;
         }
 
-        if (msg.header.dh_public == it->second.state().dh_self_public)
+        // Filter echoes of our own publishes. The relay re-broadcasts every
+        // envelope on the conversation channel back to us. Without this guard,
+        // a delayed echo arriving after a local dh_ratchet_step would no
+        // longer match state.dh_self_public and would be misrouted into the
+        // ratchet, producing "cannot skip backwards" noise (or worse).
+        auto& seen = own_dhs[addr];
+        if (seen.contains(msg.header.dh_public))
             return;
 
         auto pt = it->second.decrypt(msg);
@@ -159,11 +183,15 @@ struct Manager::Impl
         {
             // Benign in normal operation: relay redelivers / dead-drop replays
             // an envelope whose message key has already been consumed.
-            // Demote to warn so it doesn't surface as an error to the UI/logs.
-            spdlog::warn("ignoring undecryptable envelope from {}: {}",
-                         addr, pt.error().message);
+            // Demote to debug so it doesn't surface as noise.
+            spdlog::debug("ignoring undecryptable envelope from {}: {}",
+                          addr, pt.error().message);
             return;
         }
+
+        // Capture the (possibly new) dh_self_public after a potential ratchet
+        // step so subsequent echoes of our own pre-step envelopes are filtered.
+        seen.insert(it->second.state().dh_self_public);
 
         auto ps = persist_ratchet(addr);
         if (ps.is_err())
@@ -389,6 +417,8 @@ Status Manager::initiate_session(
 
     impl_->ratchets.insert_or_assign(contact_address, std::move(dr).take_value());
     impl_->initiated_this_session.insert(contact_address);
+    impl_->own_dhs[contact_address].insert(
+        impl_->ratchets.at(contact_address).state().dh_self_public);
     SHATTERS_TRY(impl_->persist_ratchet(contact_address));
 
     auto state_bytes = ratchet::serialize_state(impl_->ratchets.at(contact_address).state());
@@ -503,6 +533,8 @@ Status Manager::handle_initial_message(
     SHATTERS_TRY(pt);
 
     impl_->ratchets.insert_or_assign(addr_str, std::move(dr).take_value());
+    impl_->own_dhs[addr_str].insert(
+        impl_->ratchets.at(addr_str).state().dh_self_public);
 
     auto state_bytes = ratchet::serialize_state(impl_->ratchets.at(addr_str).state());
     auto sealed = impl_->db->encrypt_blob(state_bytes);
